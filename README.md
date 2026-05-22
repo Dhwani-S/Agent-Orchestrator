@@ -162,6 +162,42 @@ Rules:
 
 ---
 
+## Prompt Validation (PoP)
+
+### Perception Prompt Validation
+
+```json
+{
+  "explicit_reasoning": false,
+  "structured_output": true,
+  "tool_separation": true,
+  "conversation_loop": true,
+  "instructional_framing": true,
+  "internal_self_checks": false,
+  "reasoning_type_awareness": false,
+  "fallbacks": false,
+  "overall_clarity": "Clear numbered-step structure with enforced JSON schema output. Designed for multi-turn iteration with prior_goals and history context. Separates observation from action cleanly. Could improve with explicit step-by-step reasoning instructions and self-verification of goal-done assessments."
+}
+```
+
+### Decision Prompt Validation
+
+```json
+{
+  "explicit_reasoning": false,
+  "structured_output": true,
+  "tool_separation": true,
+  "conversation_loop": true,
+  "instructional_framing": true,
+  "internal_self_checks": false,
+  "reasoning_type_awareness": false,
+  "fallbacks": false,
+  "overall_clarity": "Concise 4-rule prompt with clear binary output contract (tool call XOR answer). Enforces artifact handle safety and substantive answer quality. Multi-turn context via RECENT HISTORY and ATTACHED ARTIFACTS sections. Could improve with explicit reasoning steps, self-checks on answer completeness, and fallback instructions for tool failures."
+}
+```
+
+---
+
 ## Terminal Output — All Four Target Queries
 
 ### Query A — Extract structured facts from a fetched web page (5 iterations)
