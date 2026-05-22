@@ -93,7 +93,7 @@ async def chat(q: str):
                         attached.append((goal.attach_artifact_id, blob))
                         yield send({"type": "attach", "artifact_id": goal.attach_artifact_id, "size": len(blob)})
 
-                    out = decision.next_step(goal, hits, attached, history, tools)
+                    out = decision.next_step(goal, hits, attached, history, tools, user_query=q)
 
                     if out.is_answer:
                         yield send({"type": "answer", "iter": it, "goal": goal.text, "text": out.answer})

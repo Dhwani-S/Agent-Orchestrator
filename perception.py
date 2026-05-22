@@ -71,9 +71,9 @@ def _format_history(history: list[dict]) -> str:
     lines = ["HISTORY:"]
     for event in history[-10:]:
         if event.get("kind") == "action":
-            lines.append(f"  iter {event['iter']}: TOOL {event['tool']}({event.get('arguments', {})}) -> {event.get('result_descriptor', '')[:150]}")
+            lines.append(f"  iter {event['iter']}: TOOL {event['tool']}({event.get('arguments', {})}) -> {event.get('result_descriptor', '')}")
         elif event.get("kind") == "answer":
-            lines.append(f"  iter {event['iter']}: ANSWER for goal {event.get('goal_id', '?')}: {event.get('text', '')[:150]}")
+            lines.append(f"  iter {event['iter']}: ANSWER for goal {event.get('goal_id', '?')}: {event.get('text', '')}")
     return "\n".join(lines) + "\n"
 
 

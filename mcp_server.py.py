@@ -122,36 +122,24 @@ def _ddg_search(query: str, max_results: int) -> list[dict]:
     ]
 
 
-async def _crawl4ai_fetch(url: str) -> dict:
-    from crawl4ai import AsyncWebCrawler
-
-    # crawl4ai uses Rich which writes via its own captured stdout reference, so
-    # contextlib.redirect_stdout doesn't catch it. Redirect at the file-descriptor
-    # level — crawl4ai's banner / [FETCH] / [SCRAPE] markers would otherwise
-    # corrupt the MCP stdio JSON-RPC stream.
-    saved_fd = os.dup(1)
-    os.dup2(2, 1)
-    try:
-        async with AsyncWebCrawler(verbose=False) as crawler:
-            r = await crawler.arun(url=url)
-    finally:
-        os.dup2(saved_fd, 1)
-        os.close(saved_fd)
-    # r.markdown is a str subclass (StringCompatibleMarkdown) that Pydantic
-    # serializes as {} because its real field is private. Pull the raw string
-    # out and force a plain str so FastMCP serializes correctly.
-    md = r.markdown
-    raw = (
-        getattr(md, "raw_markdown", None)
-        or getattr(md, "fit_markdown", None)
-        or md
-        or r.cleaned_html
-        or r.html
-        or ""
-    )
-    text = str(raw)
+async def _crawl4ai_fetch(url: str, timeout: int = 30) -> dict:
+    """Fetch URL content via httpx + html2text (clean markdown output)."""
+    import html2text
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; Agent6/1.0)"}
+    with httpx.Client(timeout=timeout, follow_redirects=True, headers=headers) as client:
+        resp = client.get(url)
+        resp.raise_for_status()
+    ct = resp.headers.get("content-type", "")
+    if "html" in ct:
+        h = html2text.HTML2Text()
+        h.ignore_links = True
+        h.ignore_images = True
+        h.body_width = 0
+        text = h.handle(resp.text)
+    else:
+        text = resp.text
     return {
-        "status": int(getattr(r, "status_code", None) or 200),
+        "status": resp.status_code,
         "content_type": "text/markdown",
         "length_bytes": len(text.encode("utf-8")),
         "text": text,

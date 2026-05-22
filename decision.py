@@ -14,6 +14,8 @@ Rules:
 3. When the goal asks for extraction, listing, comparison, or selection, your answer must be
    substantive: at least three sentences or a list of items. Do not give a meta-answer like
    "the page has been fetched" — do the actual work.
+4. When the user query or goal mentions a specific URL, use fetch_url with that exact URL.
+   Do NOT use web_search to find a page when you already have its URL.
 """
 
 
@@ -33,7 +35,7 @@ def _format_attached(attached: list[tuple[str, bytes]]) -> str:
     lines = ["ATTACHED ARTIFACTS:"]
     for art_id, blob in attached:
         try:
-            text = blob.decode("utf-8", errors="replace")[:50_000]
+            text = blob.decode("utf-8", errors="replace")[:20_000]
         except Exception:
             text = f"[binary, {len(blob)} bytes]"
         lines.append(f"--- {art_id} ---")
@@ -47,18 +49,20 @@ def _format_history(history: list[dict]) -> str:
     lines = ["RECENT HISTORY:"]
     for event in history[-10:]:
         if event.get("kind") == "action":
-            lines.append(f"  iter {event['iter']}: TOOL {event['tool']}({event.get('arguments', {})}) -> {event.get('result_descriptor', '')[:150]}")
+            lines.append(f"  iter {event['iter']}: TOOL {event['tool']}({event.get('arguments', {})}) -> {event.get('result_descriptor', '')}")
         elif event.get("kind") == "answer":
-            lines.append(f"  iter {event['iter']}: ANSWER: {event.get('text', '')[:150]}")
+            lines.append(f"  iter {event['iter']}: ANSWER: {event.get('text', '')}")
     return "\n".join(lines) + "\n"
 
 
 def next_step(goal: Goal, hits: list[MemoryItem],
               attached: list[tuple[str, bytes]],
               history: list[dict],
-              mcp_tools: list[dict]) -> DecisionOutput:
+              mcp_tools: list[dict],
+              user_query: str = "") -> DecisionOutput:
 
     prompt = (
+        f"USER QUERY: {user_query}\n\n"
         f"CURRENT GOAL: {goal.text}\n\n"
         f"{_format_hits(hits)}\n"
         f"{_format_attached(attached)}\n"

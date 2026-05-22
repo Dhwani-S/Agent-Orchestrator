@@ -5,6 +5,9 @@ import uuid
 import asyncio
 import subprocess
 import time
+import os
+from datetime import datetime
+from pathlib import Path
 
 from contextlib import asynccontextmanager
 from mcp import ClientSession, StdioServerParameters
@@ -20,10 +23,37 @@ import action
 MAX_ITERATIONS = 15
 MCP_SERVER_PATH = "mcp_server.py.py"
 GATEWAY_URL = "http://localhost:8101"
+LOGS_DIR = Path("logs")
 
 
 memory = Memory()
 artifact_store = ArtifactStore()
+
+# ---------------------------------------------------------------------------
+# Dual logger: prints to stdout AND writes to a log file in logs/
+# ---------------------------------------------------------------------------
+
+class DualLogger:
+    """Writes every line to both stdout and a log file."""
+
+    def __init__(self, log_path: Path):
+        LOGS_DIR.mkdir(exist_ok=True)
+        self.file = open(log_path, "w", encoding="utf-8")
+
+    def log(self, msg: str = ""):
+        print(msg)
+        self.file.write(msg + "\n")
+        self.file.flush()
+
+    def close(self):
+        self.file.close()
+
+
+def _query_slug(query: str) -> str:
+    """Short slug from query for the log filename."""
+    words = query.lower().split()[:5]
+    slug = "_".join(w for w in words if w.isalnum())
+    return slug[:40] or "query"
 
 
 def ensure_gateway():
@@ -72,24 +102,34 @@ async def run(query: str) -> str:
     history: list[dict] = []
     prior_goals: list[Goal] = []
 
-    print(f"\n{'='*60}")
-    print(f"[agent6] Query: {query}")
-    print(f"[agent6] Run ID: {run_id}")
-    print(f"{'='*60}")
+    # Set up dual logging
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    slug = _query_slug(query)
+    log_path = LOGS_DIR / f"{ts}_{slug}.log"
+    logger = DualLogger(log_path)
+    L = logger.log
+
+    L(f"\n{'='*60}")
+    L(f"[agent6] Query: {query}")
+    L(f"[agent6] Run ID: {run_id}")
+    L(f"[agent6] Timestamp: {datetime.now().isoformat()}")
+    L(f"{'='*60}")
 
     try:
         memory.remember(query, source="user_query", run_id=run_id)
+        L("[memory.remember] Query classified and stored.")
     except Exception as e:
-        print(f"[agent6] memory.remember warning: {e}")
+        L(f"[agent6] memory.remember warning: {e}")
 
     async with mcp_session() as session:
         tools = await load_tools(session)
+        L(f"[mcp] Connected — {len(tools)} tools available.")
 
         for it in range(1, MAX_ITERATIONS + 1):
-            print(f"\n--- iter {it} ---")
+            L(f"\n--- iter {it} ---")
 
             hits = memory.read(query, history)
-            print(f"[memory.read]   {len(hits)} hits")
+            L(f"[memory.read]   {len(hits)} hits")
 
             obs = perception.observe(query, hits, history, prior_goals, run_id)
             prior_goals = obs.goals
@@ -97,10 +137,10 @@ async def run(query: str) -> str:
             for g in obs.goals:
                 status = "done" if g.done else "open"
                 attach = f"  attach={g.attach_artifact_id}" if g.attach_artifact_id else ""
-                print(f"[perception]    [{status}] {g.text}{attach}")
+                L(f"[perception]    [{status}] {g.text}{attach}")
 
             if obs.all_done:
-                print("\n[done] all goals satisfied")
+                L(f"\n[done] all {len(obs.goals)} goals satisfied")
                 break
 
             goal = obs.next_unfinished()
@@ -109,22 +149,23 @@ async def run(query: str) -> str:
             if goal.attach_artifact_id and artifact_store.exists(goal.attach_artifact_id):
                 blob = artifact_store.get_bytes(goal.attach_artifact_id)
                 attached.append((goal.attach_artifact_id, blob))
-                print(f"[attach]        {goal.attach_artifact_id} ({len(blob)} bytes)")
+                L(f"[attach]        {goal.attach_artifact_id} ({len(blob)} bytes)")
 
-            out = decision.next_step(goal, hits, attached, history, tools)
+            out = decision.next_step(goal, hits, attached, history, tools, user_query=query)
 
             if out.is_answer:
-                print(f"[decision]      ANSWER: {out.answer[:150]}")
+                L(f"[decision]      ANSWER: {out.answer[:300]}")
                 history.append({
                     "iter": it, "kind": "answer",
                     "goal_id": goal.id, "text": out.answer,
                 })
                 continue
 
-            print(f"[decision]      TOOL_CALL: {out.tool_call.name}({out.tool_call.arguments})")
+            L(f"[decision]      TOOL_CALL: {out.tool_call.name}({out.tool_call.arguments})")
 
             result_text, art_id = await action.execute(session, out.tool_call, artifact_store)
-            print(f"[action]        -> {result_text[:150]}")
+            art_tag = f" [artifact: {art_id}]" if art_id else ""
+            L(f"[action]        -> {result_text[:300]}{art_tag}")
 
             memory.record_outcome(
                 tool_call=out.tool_call,
@@ -141,11 +182,17 @@ async def run(query: str) -> str:
                 "result_descriptor": result_text[:300],
                 "artifact_id": art_id,
             })
+        else:
+            L(f"\n[warning] max iterations ({MAX_ITERATIONS}) reached")
 
     answer = final_answer_from(history)
-    print(f"\n{'='*60}")
-    print(f"FINAL: {answer}")
-    print(f"{'='*60}\n")
+    L(f"\n{'='*60}")
+    L(f"FINAL: {answer}")
+    L(f"Iterations: {min(it, MAX_ITERATIONS)}")
+    L(f"{'='*60}\n")
+    
+    logger.close()
+    print(f"\n[log saved] {log_path}")
     return answer
 
 
