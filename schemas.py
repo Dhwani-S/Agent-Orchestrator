@@ -8,7 +8,7 @@ class MemoryItem(BaseModel):
     id: str
     kind: Literal["fact", "preference", "tool_outcome", "scratchpad"]
     keywords: list[str]
-    description: str
+    descriptor: str
     value: dict
     artifact_id: Optional[str] = None
     source: str 

@@ -1,5 +1,5 @@
 """
-MCP server for EAGV3 Session 6.
+MCP server.
 
 Nine tools, stdio transport:
     web_search, fetch_url, get_time, currency_convert,
