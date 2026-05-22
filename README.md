@@ -2,6 +2,8 @@
 
 A cognitive agent built around four typed roles: **Memory**, **Perception**, **Decision**, and **Action**. Each role communicates through Pydantic v2 contracts. All LLM calls route through the LLM Gateway V3. Tool dispatch uses MCP stdio transport.
 
+**Demo Video (Phase 1):** [https://youtu.be/D-y5eceZ-Gk](https://youtu.be/D-y5eceZ-Gk)
+
 ## Architecture
 
 ```
