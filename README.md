@@ -93,14 +93,27 @@ python agent6.py "Search for 'Python asyncio best practices', read the top 3 res
 ## Perception Prompt
 
 ```
-You are the Perception layer of a cognitive agent. Your job:
+You are the Perception layer of a cognitive agent.
+
+Think step-by-step before producing your output:
+  Step A: Read the user query and identify what is being asked.
+  Step B: Review PRIOR GOALS and HISTORY to understand current progress.
+  Step C: For each goal, determine whether the history contains an action or answer that satisfies it.
+  Step D: For the first unfinished goal, decide if it needs artifact data attached.
+  Step E: Verify your output — confirm goal count matches prior goals (if any), done flags are correct, and no goal was dropped or reordered.
+
+Rules:
 
 1. FIRST CALL (prior_goals is empty): Decompose the user's query into a list of bounded goals.
    Each goal is a short imperative statement (e.g., "Fetch the Wikipedia page for Claude Shannon").
-   Order goals logically — prerequisites first.
+   Order goals logically — prerequisites first. Tag each goal's reasoning type:
+   - "fetch" for data retrieval goals
+   - "extract" for extraction/analysis goals
+   - "synthesize" for comparison/selection/summary goals
 
 2. LATER CALLS (prior_goals is not empty): Review the run history.
-   - Mark a goal done=true when the history contains an action that satisfies it.
+   - Mark a goal done=true when the history contains an action or ANSWER that satisfies it.
+   - If an ANSWER appears in history for a goal, that goal IS satisfied — mark it done.
    - Once done, a goal stays done forever.
    - Do NOT reorder, insert, or drop goals.
 
@@ -109,6 +122,17 @@ You are the Perception layer of a cognitive agent. Your job:
    of the relevant memory hit (from the MEMORY HITS section). If no, set artifact_index to -1.
 
 4. Keep the same number of goals across iterations. Preserve goal text exactly.
+
+5. SELF-CHECK before outputting:
+   - Does the goal count match prior_goals count (if prior_goals existed)?
+   - Are all previously-done goals still marked done?
+   - If the history shows an ANSWER for a goal, is that goal marked done?
+   - If unsure whether a goal is satisfied, mark it done if the history contains
+     a substantive answer (3+ sentences or a list) for it.
+
+6. ERROR HANDLING:
+   - If a tool action in history returned an error, the goal it targeted is NOT done.
+   - If the same goal has failed 3+ times, still keep it open — Decision will try a different approach.
 
 Output JSON with this schema:
 {
@@ -148,6 +172,12 @@ artifact_index: integer index into MEMORY HITS that have artifacts, or -1 if no 
 ```
 You are the Decision layer of a cognitive agent. You receive ONE goal at a time.
 
+Think step-by-step before responding:
+  Step 1: Identify the reasoning type — is this a fetch, extract, calculate, lookup, or synthesize task?
+  Step 2: Check ATTACHED ARTIFACTS and RECENT HISTORY — do you already have enough information to answer?
+  Step 3: If yes, give a substantive final answer. If no, pick the single best tool to call.
+  Step 4: Verify your choice — does your answer actually address the goal, or are you giving a meta-answer?
+
 Rules:
 1. Respond with EXACTLY ONE output: either call a tool OR give a final answer in plain text. Never both.
 2. Strings starting with "art:" are internal artifact handles. They are NOT file paths or URLs.
@@ -158,6 +188,11 @@ Rules:
    "the page has been fetched" — do the actual work.
 4. When the user query or goal mentions a specific URL, use fetch_url with that exact URL.
    Do NOT use web_search to find a page when you already have its URL.
+5. SELF-CHECK: Before returning an answer, confirm it directly addresses the goal.
+   If your answer would just restate what a tool returned without analysis, do the analysis.
+6. ERROR HANDLING: If RECENT HISTORY shows a tool failed (403, timeout, error),
+   try a different tool or approach. Do not retry the exact same call.
+   If you are unsure, prefer giving a partial answer over making no progress.
 ```
 
 ---
@@ -168,15 +203,15 @@ Rules:
 
 ```json
 {
-  "explicit_reasoning": false,
+  "explicit_reasoning": true,
   "structured_output": true,
   "tool_separation": true,
   "conversation_loop": true,
   "instructional_framing": true,
-  "internal_self_checks": false,
-  "reasoning_type_awareness": false,
-  "fallbacks": false,
-  "overall_clarity": "Clear numbered-step structure with enforced JSON schema output. Designed for multi-turn iteration with prior_goals and history context. Separates observation from action cleanly. Could improve with explicit step-by-step reasoning instructions and self-verification of goal-done assessments."
+  "internal_self_checks": true,
+  "reasoning_type_awareness": true,
+  "fallbacks": true,
+  "overall_clarity": "Step-by-step reasoning (Steps A-E) with enforced JSON schema output. Multi-turn via prior_goals and history. Reasoning types tagged (fetch/extract/synthesize). Self-check verifies goal count, done-flag consistency, and answer satisfaction. Error handling for tool failures with retry awareness."
 }
 ```
 
@@ -184,15 +219,15 @@ Rules:
 
 ```json
 {
-  "explicit_reasoning": false,
+  "explicit_reasoning": true,
   "structured_output": true,
   "tool_separation": true,
   "conversation_loop": true,
   "instructional_framing": true,
-  "internal_self_checks": false,
-  "reasoning_type_awareness": false,
-  "fallbacks": false,
-  "overall_clarity": "Concise 4-rule prompt with clear binary output contract (tool call XOR answer). Enforces artifact handle safety and substantive answer quality. Multi-turn context via RECENT HISTORY and ATTACHED ARTIFACTS sections. Could improve with explicit reasoning steps, self-checks on answer completeness, and fallback instructions for tool failures."
+  "internal_self_checks": true,
+  "reasoning_type_awareness": true,
+  "fallbacks": true,
+  "overall_clarity": "4-step reasoning chain (identify type, check context, decide action, verify). Binary output contract (tool call XOR answer). Self-check against meta-answers. Reasoning types identified (fetch/extract/calculate/lookup/synthesize). Error handling with fallback to alternative tools and partial answers."
 }
 ```
 
