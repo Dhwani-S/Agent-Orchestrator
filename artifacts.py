@@ -14,6 +14,7 @@ class ArtifactStore:
         self.base.mkdir(parents=True, exist_ok=True)
 
     def put(self, blob: bytes, *, content_type: str, source: str, descriptor: str) -> str:
+        self.base.mkdir(parents=True, exist_ok=True)
         sha = hashlib.sha256(blob).hexdigest()[:16]
         art_id = f"art:{sha}"
         bin_path = self.base / f"{sha}.bin"

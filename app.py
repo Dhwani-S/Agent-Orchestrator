@@ -10,6 +10,7 @@ import asyncio
 import json
 import uuid
 import sys
+import traceback
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -135,10 +136,13 @@ async def chat(q: str):
             final = final_answer_from(history)
             yield send({"type": "final", "answer": final})
 
-        except Exception as e:
-            yield send({"type": "error", "message": str(e)})
         except BaseException as e:
-            yield send({"type": "error", "message": str(e)})
+            traceback.print_exc()
+            # Unwrap ExceptionGroup / BaseExceptionGroup to show the real error
+            real = e
+            while isinstance(real, BaseExceptionGroup) and real.exceptions:
+                real = real.exceptions[0]
+            yield send({"type": "error", "message": str(real)})
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 

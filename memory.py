@@ -39,7 +39,9 @@ class Memory:
 
     #tokenizer
     def _tokenize(self, text: str) -> set[str]:
-        tokens = set(text.lower().split())
+        import re
+        text = re.sub(r'[^\w\s]', ' ', text.lower())
+        tokens = set(text.split())
         return tokens - STOPWORDS
     
     # reads (no LLM)
