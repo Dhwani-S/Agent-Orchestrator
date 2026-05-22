@@ -1,8 +1,10 @@
 """Python client for LLM Gateway V3. Adds auto_route kwarg on top of V2."""
-import os, json, httpx
+import os, json, time, httpx
 from typing import Any, Optional
 
 DEFAULT_URL = os.getenv("LLM_GATEWAY_V3_URL", "http://localhost:8101")
+MAX_RETRIES = 3
+RETRY_DELAYS = [5, 15, 30]
 
 
 class LLM:
@@ -31,7 +33,15 @@ class LLM:
             "auto_route": auto_route,
         }
         body = {k: v for k, v in body.items() if v is not None}
-        r = httpx.post(f"{self.base_url}/v1/chat", json=body, timeout=self.timeout)
+        for attempt in range(MAX_RETRIES):
+            r = httpx.post(f"{self.base_url}/v1/chat", json=body, timeout=self.timeout)
+            if r.status_code in (429, 502, 503):
+                delay = RETRY_DELAYS[min(attempt, len(RETRY_DELAYS) - 1)]
+                print(f"[gateway] {r.status_code} on attempt {attempt+1}, retrying in {delay}s...")
+                time.sleep(delay)
+                continue
+            r.raise_for_status()
+            return r.json()
         r.raise_for_status()
         return r.json()
 

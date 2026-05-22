@@ -291,5 +291,246 @@ def edit_file(path: str, find: str, replace: str, replace_all: bool = False) -> 
     }
 
 
+# ── Mock Travel Booking Tools ──────────────────────────────────────
+
+BOOKINGS_FILE = Path(__file__).parent / "state" / "bookings.json"
+
+def _load_bookings() -> list[dict]:
+    BOOKINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    if BOOKINGS_FILE.exists():
+        return json.loads(BOOKINGS_FILE.read_text(encoding="utf-8"))
+    return []
+
+def _save_bookings(bookings: list[dict]):
+    BOOKINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    BOOKINGS_FILE.write_text(json.dumps(bookings, indent=2, default=str), encoding="utf-8")
+
+
+MOCK_HOTELS = {
+    "mumbai": [
+        {"name": "Trident BKC", "area": "Bandra Kurla Complex", "price_per_night": 3500, "rating": 4.3, "distance_to_jio_world_centre_km": 1.2, "amenities": ["wifi", "pool", "gym", "restaurant", "airport shuttle"]},
+        {"name": "ITC Maratha", "area": "Andheri East", "price_per_night": 4000, "rating": 4.5, "distance_to_jio_world_centre_km": 8.5, "amenities": ["wifi", "pool", "spa", "restaurant", "business centre"]},
+        {"name": "Hyatt Regency", "area": "Andheri East", "price_per_night": 3800, "rating": 4.2, "distance_to_jio_world_centre_km": 7.0, "amenities": ["wifi", "pool", "gym", "restaurant"]},
+        {"name": "Sofitel BKC", "area": "Bandra Kurla Complex", "price_per_night": 4200, "rating": 4.6, "distance_to_jio_world_centre_km": 0.8, "amenities": ["wifi", "pool", "spa", "gym", "restaurant", "lounge"]},
+        {"name": "Courtyard by Marriott", "area": "Andheri East", "price_per_night": 2800, "rating": 4.0, "distance_to_jio_world_centre_km": 9.0, "amenities": ["wifi", "gym", "restaurant"]},
+        {"name": "The Leela Mumbai", "area": "Andheri East", "price_per_night": 3200, "rating": 4.4, "distance_to_jio_world_centre_km": 8.0, "amenities": ["wifi", "pool", "spa", "restaurant", "business centre"]},
+        {"name": "JW Marriott Sahar", "area": "Andheri East", "price_per_night": 3600, "rating": 4.3, "distance_to_jio_world_centre_km": 10.0, "amenities": ["wifi", "pool", "gym", "spa", "restaurant"]},
+        {"name": "Holiday Inn BKC", "area": "Bandra Kurla Complex", "price_per_night": 2500, "rating": 3.8, "distance_to_jio_world_centre_km": 1.5, "amenities": ["wifi", "gym", "restaurant"]},
+    ],
+    "jamnagar": [
+        {"name": "Hotel President", "area": "City Centre", "price_per_night": 1800, "rating": 3.5, "amenities": ["wifi", "restaurant"]},
+        {"name": "The Fern Residency", "area": "Patel Colony", "price_per_night": 2500, "rating": 3.9, "amenities": ["wifi", "gym", "restaurant"]},
+        {"name": "Aram Resort", "area": "Highway", "price_per_night": 3000, "rating": 4.0, "amenities": ["wifi", "pool", "restaurant", "garden"]},
+    ],
+    "bangalore": [
+        {"name": "Taj MG Road", "area": "MG Road", "price_per_night": 3500, "rating": 4.4, "amenities": ["wifi", "pool", "spa", "restaurant"]},
+        {"name": "ITC Gardenia", "area": "Residency Road", "price_per_night": 4000, "rating": 4.5, "amenities": ["wifi", "pool", "spa", "gym", "restaurant"]},
+    ],
+}
+
+MOCK_FLIGHTS = [
+    {"flight": "AI-801", "airline": "Air India", "from": "Bangalore", "to": "Mumbai", "depart": "06:15", "arrive": "08:20", "price": 4500, "class": "economy"},
+    {"flight": "6E-302", "airline": "IndiGo", "from": "Bangalore", "to": "Mumbai", "depart": "07:45", "arrive": "09:50", "price": 3200, "class": "economy"},
+    {"flight": "UK-852", "airline": "Vistara", "from": "Bangalore", "to": "Mumbai", "depart": "09:30", "arrive": "11:35", "price": 5100, "class": "economy"},
+    {"flight": "SG-171", "airline": "SpiceJet", "from": "Bangalore", "to": "Mumbai", "depart": "14:00", "arrive": "16:05", "price": 2800, "class": "economy"},
+    {"flight": "AI-671", "airline": "Air India", "from": "Mumbai", "to": "Jamnagar", "depart": "10:30", "arrive": "12:00", "price": 3800, "class": "economy"},
+    {"flight": "6E-517", "airline": "IndiGo", "from": "Mumbai", "to": "Jamnagar", "depart": "15:20", "arrive": "16:50", "price": 3100, "class": "economy"},
+    {"flight": "SG-401", "airline": "SpiceJet", "from": "Mumbai", "to": "Jamnagar", "depart": "18:00", "arrive": "19:30", "price": 2600, "class": "economy"},
+]
+
+MOCK_TRAINS = [
+    {"train": "12009", "name": "Mumbai Shatabdi", "from": "Bangalore", "to": "Mumbai", "depart": "06:00", "arrive": "17:30", "price_sleeper": 700, "price_3ac": 1800, "price_2ac": 2600},
+    {"train": "11014", "name": "Kurla Express", "from": "Bangalore", "to": "Mumbai", "depart": "22:00", "arrive": "11:30+1", "price_sleeper": 550, "price_3ac": 1500, "price_2ac": 2200},
+    {"train": "12936", "name": "Saurashtra Mail", "from": "Mumbai", "to": "Jamnagar", "depart": "19:50", "arrive": "07:15+1", "price_sleeper": 450, "price_3ac": 1200, "price_2ac": 1800},
+    {"train": "22956", "name": "Kutch Express", "from": "Mumbai", "to": "Jamnagar", "depart": "23:15", "arrive": "10:45+1", "price_sleeper": 400, "price_3ac": 1100, "price_2ac": 1600},
+]
+
+
+@mcp.tool()
+def search_hotels(city: str, check_in: str, check_out: str, max_price_per_night: int = 10000,
+                  sort_by: str = "price") -> str:
+    """Search available hotels in a city. Returns a list of hotels with prices, ratings, and amenities.
+    Args: city (e.g. 'mumbai'), check_in (YYYY-MM-DD), check_out (YYYY-MM-DD),
+    max_price_per_night (budget cap), sort_by ('price'|'rating'|'distance')."""
+    key = city.lower().strip()
+    hotels = MOCK_HOTELS.get(key, [])
+    if not hotels:
+        return json.dumps({"error": f"No hotels found in '{city}'. Available cities: {list(MOCK_HOTELS.keys())}"})
+
+    results = [h for h in hotels if h["price_per_night"] <= max_price_per_night]
+    if sort_by == "rating":
+        results.sort(key=lambda h: -h["rating"])
+    elif sort_by == "distance" and "distance_to_jio_world_centre_km" in results[0]:
+        results.sort(key=lambda h: h.get("distance_to_jio_world_centre_km", 999))
+    else:
+        results.sort(key=lambda h: h["price_per_night"])
+
+    from datetime import datetime as dt
+    try:
+        d1 = dt.strptime(check_in, "%Y-%m-%d")
+        d2 = dt.strptime(check_out, "%Y-%m-%d")
+        nights = (d2 - d1).days
+    except ValueError:
+        nights = 1
+
+    for h in results:
+        h["check_in"] = check_in
+        h["check_out"] = check_out
+        h["nights"] = nights
+        h["total_price"] = h["price_per_night"] * nights
+
+    return json.dumps({"city": city, "check_in": check_in, "check_out": check_out,
+                        "nights": nights, "hotels": results, "count": len(results)}, indent=2)
+
+
+@mcp.tool()
+def search_flights(origin: str, destination: str, date: str) -> str:
+    """Search available flights between two cities on a given date.
+    Args: origin (city name), destination (city name), date (YYYY-MM-DD)."""
+    o = origin.lower().strip()
+    d = destination.lower().strip()
+    results = [f for f in MOCK_FLIGHTS if f["from"].lower() == o and f["to"].lower() == d]
+    if not results:
+        return json.dumps({"error": f"No flights from '{origin}' to '{destination}'. Try swapping or checking city names."})
+    for f in results:
+        f["date"] = date
+    return json.dumps({"origin": origin, "destination": destination, "date": date,
+                        "flights": results, "count": len(results)}, indent=2)
+
+
+@mcp.tool()
+def search_trains(origin: str, destination: str, date: str) -> str:
+    """Search available trains between two cities on a given date.
+    Args: origin (city name), destination (city name), date (YYYY-MM-DD)."""
+    o = origin.lower().strip()
+    d = destination.lower().strip()
+    results = [t for t in MOCK_TRAINS if t["from"].lower() == o and t["to"].lower() == d]
+    if not results:
+        return json.dumps({"error": f"No trains from '{origin}' to '{destination}'."})
+    for t in results:
+        t["date"] = date
+    return json.dumps({"origin": origin, "destination": destination, "date": date,
+                        "trains": results, "count": len(results)}, indent=2)
+
+
+@mcp.tool()
+def book_hotel(hotel_name: str, city: str, check_in: str, check_out: str,
+               guest_name: str = "User") -> str:
+    """Book a hotel room (mock). Creates a confirmed booking record.
+    Args: hotel_name, city, check_in (YYYY-MM-DD), check_out (YYYY-MM-DD), guest_name."""
+    key = city.lower().strip()
+    hotels = MOCK_HOTELS.get(key, [])
+    match = [h for h in hotels if h["name"].lower() == hotel_name.lower().strip()]
+    if not match:
+        return json.dumps({"error": f"Hotel '{hotel_name}' not found in {city}."})
+
+    hotel = match[0]
+    from datetime import datetime as dt
+    try:
+        nights = (dt.strptime(check_out, "%Y-%m-%d") - dt.strptime(check_in, "%Y-%m-%d")).days
+    except ValueError:
+        nights = 1
+
+    import random
+    booking = {
+        "booking_id": f"HTL-{random.randint(100000, 999999)}",
+        "status": "CONFIRMED",
+        "hotel": hotel["name"],
+        "city": city,
+        "area": hotel["area"],
+        "check_in": check_in,
+        "check_out": check_out,
+        "nights": nights,
+        "price_per_night": hotel["price_per_night"],
+        "total_price": hotel["price_per_night"] * nights,
+        "guest": guest_name,
+        "amenities": hotel["amenities"],
+    }
+
+    bookings = _load_bookings()
+    bookings.append(booking)
+    _save_bookings(bookings)
+
+    return json.dumps({"message": "Booking confirmed!", "booking": booking}, indent=2)
+
+
+@mcp.tool()
+def book_flight(flight_number: str, date: str, passenger_name: str = "User") -> str:
+    """Book a flight ticket (mock). Creates a confirmed booking record.
+    Args: flight_number (e.g. 'AI-801'), date (YYYY-MM-DD), passenger_name."""
+    match = [f for f in MOCK_FLIGHTS if f["flight"].lower() == flight_number.lower().strip()]
+    if not match:
+        return json.dumps({"error": f"Flight '{flight_number}' not found."})
+
+    flight = match[0]
+    import random
+    booking = {
+        "booking_id": f"FLT-{random.randint(100000, 999999)}",
+        "status": "CONFIRMED",
+        "flight": flight["flight"],
+        "airline": flight["airline"],
+        "from": flight["from"],
+        "to": flight["to"],
+        "date": date,
+        "depart": flight["depart"],
+        "arrive": flight["arrive"],
+        "price": flight["price"],
+        "passenger": passenger_name,
+        "seat": f"{random.randint(1,30)}{random.choice('ABCDEF')}",
+    }
+
+    bookings = _load_bookings()
+    bookings.append(booking)
+    _save_bookings(bookings)
+
+    return json.dumps({"message": "Flight booked!", "booking": booking}, indent=2)
+
+
+@mcp.tool()
+def book_train(train_number: str, date: str, travel_class: str = "3ac",
+               passenger_name: str = "User") -> str:
+    """Book a train ticket (mock). Creates a confirmed booking record.
+    Args: train_number (e.g. '12009'), date (YYYY-MM-DD), travel_class ('sleeper'|'3ac'|'2ac'), passenger_name."""
+    match = [t for t in MOCK_TRAINS if t["train"] == train_number.strip()]
+    if not match:
+        return json.dumps({"error": f"Train '{train_number}' not found."})
+
+    train = match[0]
+    price_key = f"price_{travel_class}"
+    price = train.get(price_key, train.get("price_3ac", 0))
+
+    import random
+    booking = {
+        "booking_id": f"TRN-{random.randint(100000, 999999)}",
+        "pnr": f"PNR{random.randint(1000000000, 9999999999)}",
+        "status": "CONFIRMED",
+        "train": train["train"],
+        "name": train["name"],
+        "from": train["from"],
+        "to": train["to"],
+        "date": date,
+        "depart": train["depart"],
+        "arrive": train["arrive"],
+        "class": travel_class,
+        "price": price,
+        "passenger": passenger_name,
+    }
+
+    bookings = _load_bookings()
+    bookings.append(booking)
+    _save_bookings(bookings)
+
+    return json.dumps({"message": "Train ticket booked!", "booking": booking}, indent=2)
+
+
+@mcp.tool()
+def my_bookings() -> str:
+    """View all current bookings (hotels, flights, trains)."""
+    bookings = _load_bookings()
+    if not bookings:
+        return json.dumps({"message": "No bookings found.", "bookings": []})
+    return json.dumps({"count": len(bookings), "bookings": bookings}, indent=2)
+
+
 if __name__ == "__main__":
     mcp.run(transport="stdio")

@@ -18,7 +18,7 @@ from router import Router, RouterPool, DEFAULT_ROUTER_ORDER, LIMITS, SHORTCUTS, 
 from cache import GeminiCache
 from schemas import ChatRequest, ChatResponse, ToolCall, RouterDecision
 
-DEFAULT_ORDER = ["ollama", "gemini", "nvidia", "groq", "cerebras", "openrouter", "github"]
+DEFAULT_ORDER = ["ollama", "vertex", "gemini", "nvidia", "groq", "cerebras", "openrouter", "github"]
 ORDER = [x.strip() for x in os.getenv("LLM_ORDER", ",".join(DEFAULT_ORDER)).split(",") if x.strip()]
 ROUTER_ORDER = [x.strip() for x in os.getenv("ROUTER_ORDER", ",".join(DEFAULT_ROUTER_ORDER)).split(",") if x.strip()]
 PORT = int(os.getenv("GATEWAY_V3_PORT", "8101"))
@@ -26,8 +26,8 @@ PORT = int(os.getenv("GATEWAY_V3_PORT", "8101"))
 # Tier -> worker failover order. TINY prefers small fast workers; LARGE prefers
 # long-context Gemini; HUGE is rejected (Summarizer Agent will live in V7).
 TIER_TO_ORDER = {
-    "TINY":  ["github", "openrouter", "groq", "nvidia", "cerebras", "gemini", "ollama"],
-    "LARGE": ["gemini", "groq", "nvidia", "cerebras", "github", "openrouter", "ollama"],
+    "TINY":  ["github", "openrouter", "groq", "nvidia", "cerebras", "vertex", "gemini", "ollama"],
+    "LARGE": ["vertex", "gemini", "groq", "nvidia", "cerebras", "github", "openrouter", "ollama"],
 }
 
 # Router envelope: cap the sample at ~800 chars (first 400 + last 400).

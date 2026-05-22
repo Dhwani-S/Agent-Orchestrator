@@ -108,7 +108,7 @@ class Memory:
         resp = llm.chat(
             prompt=raw_text,
             system=system,
-            provider="g",
+            provider="v",
             temperature=0.3,
             response_format={"type": "json_schema", "schema": classify_schema, "name": "memory_classify"},
         )
@@ -119,7 +119,7 @@ class Memory:
             id=uuid.uuid4().hex[:12],
             kind=parsed["kind"],
             keywords=parsed["keywords"],
-            description=parsed["descriptor"],
+            descriptor=parsed["descriptor"],
             value=parsed["value"],
             source=source,
             run_id=run_id,
@@ -142,7 +142,7 @@ class Memory:
             id=uuid.uuid4().hex[:12],
             kind="tool_outcome",
             keywords=keywords[:20],
-            description=result_text[:200],
+            descriptor=result_text[:200],
             value={"tool": tool_call.name, "arguments": tool_call.arguments, "result_preview": result_text[:500]},
             artifact_id=artifact_id,
             source=f"tool:{tool_call.name}",

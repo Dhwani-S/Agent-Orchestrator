@@ -354,6 +354,192 @@ class GitHubProvider(OpenAICompatProvider):
 # Gemini
 # ────────────────────────────────────────────────────────────────────────────
 
+class VertexAIProvider(BaseProvider):
+    """Gemini via Vertex AI — uses ADC (Application Default Credentials).
+
+    Requires:
+      - gcloud auth application-default login
+      - GOOGLE_CLOUD_PROJECT env var
+      - Optionally VERTEX_AI_LOCATION (default: us-central1)
+    """
+    name = "vertex"
+    capabilities = {
+        "tools": True, "caching": False, "reasoning": True,
+        "structured": True, "parallel_tools": True,
+    }
+
+    def __init__(self, project: str, location: str, model: str):
+        super().__init__("", model, "")
+        self.project = project
+        self.location = location
+        self._creds = None
+
+    def _get_token(self) -> str:
+        import google.auth
+        import google.auth.transport.requests
+        if self._creds is None:
+            # Try service account from base64-encoded JSON first
+            b64 = os.getenv("GCP_DEV_CREDENTIALS_BASE64")
+            if b64:
+                import base64
+                from google.oauth2 import service_account
+                info = json.loads(base64.b64decode(b64))
+                self._creds = service_account.Credentials.from_service_account_info(
+                    info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
+                )
+            else:
+                self._creds, _ = google.auth.default(
+                    scopes=["https://www.googleapis.com/auth/cloud-platform"]
+                )
+        if not self._creds.valid or (hasattr(self._creds, 'expired') and self._creds.expired):
+            self._creds.refresh(google.auth.transport.requests.Request())
+        return self._creds.token
+
+    def _translate_tools(self, tools):
+        if not tools:
+            return None
+        decls = []
+        for t in tools:
+            d = t if isinstance(t, dict) else t.model_dump()
+            decls.append({
+                "name": d["name"],
+                "description": d.get("description", ""),
+                "parameters": d.get("input_schema") or {"type": "object", "properties": {}},
+            })
+        return [{"function_declarations": decls}]
+
+    def _translate_messages(self, messages):
+        contents = []
+        for m in messages:
+            r = m.get("role")
+            if r == "system":
+                continue
+            if r == "tool":
+                contents.append({
+                    "role": "user",
+                    "parts": [{
+                        "function_response": {
+                            "name": m.get("tool_name") or m.get("name") or "tool",
+                            "response": _coerce_obj(m.get("content")),
+                        }
+                    }],
+                })
+                continue
+            if r == "assistant":
+                parts = []
+                if m.get("content"):
+                    parts.append({"text": m["content"]})
+                for tc in (m.get("tool_calls") or []):
+                    parts.append({
+                        "functionCall": {
+                            "name": tc["name"],
+                            "args": tc.get("arguments") or {},
+                        }
+                    })
+                if not parts:
+                    parts = [{"text": ""}]
+                contents.append({"role": "model", "parts": parts})
+                continue
+            content = m.get("content", "")
+            contents.append({"role": "user", "parts": [{"text": content if isinstance(content, str) else json.dumps(content)}]})
+        return contents
+
+    async def chat(self, messages, *, max_tokens=2048, temperature=0.7, model=None,
+                   tools=None, tool_choice=None, reasoning=None, response_format=None,
+                   system_blocks=None, cache_system=False):
+        m = model or self.model
+        system_text, _, _ = _flatten_system(system_blocks)
+
+        body: dict[str, Any] = {
+            "contents": self._translate_messages(messages),
+            "generationConfig": {"maxOutputTokens": max_tokens, "temperature": temperature},
+        }
+        if system_text:
+            body["systemInstruction"] = {"parts": [{"text": system_text}]}
+
+        if tools:
+            body["tools"] = self._translate_tools(tools)
+            mode = "AUTO"
+            if tool_choice == "none":
+                mode = "NONE"
+            elif isinstance(tool_choice, dict):
+                mode = "ANY"
+            body["toolConfig"] = {"function_calling_config": {"mode": mode}}
+
+        if response_format:
+            rf = response_format if isinstance(response_format, dict) else response_format.model_dump(by_alias=True)
+            if rf.get("schema"):
+                body["generationConfig"]["responseMimeType"] = "application/json"
+                body["generationConfig"]["responseSchema"] = _gemini_clean_schema(rf["schema"])
+            elif rf.get("type") == "json_object":
+                body["generationConfig"]["responseMimeType"] = "application/json"
+
+        reasoning_applied = False
+        if reasoning and reasoning != "off":
+            knob = _gemini_thinking_knob(m)
+            if knob == "level":
+                body["generationConfig"]["thinkingConfig"] = {"thinkingLevel": reasoning}
+                reasoning_applied = True
+            elif knob == "budget":
+                body["generationConfig"]["thinkingConfig"] = {"thinkingBudget": _GEMINI_BUDGETS.get(reasoning, 8192)}
+                reasoning_applied = True
+
+        token = self._get_token()
+        url = (
+            f"https://{self.location}-aiplatform.googleapis.com/v1beta1"
+            f"/projects/{self.project}/locations/{self.location}"
+            f"/publishers/google/models/{m}:generateContent"
+        )
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+        async with httpx.AsyncClient(timeout=180) as c:
+            r = await c.post(url, json=body, headers=headers)
+            if r.status_code == 400 and reasoning_applied:
+                body["generationConfig"].pop("thinkingConfig", None)
+                reasoning_applied = False
+                r = await c.post(url, json=body, headers=headers)
+            if r.status_code != 200:
+                raise ProviderError(
+                    f"vertex HTTP {r.status_code}: {r.text[:400]}",
+                    status=r.status_code,
+                    retryable=(r.status_code not in (400, 401, 403)),
+                )
+            d = r.json()
+            cands = d.get("candidates") or []
+            if not cands:
+                raise ProviderError(f"vertex no candidates: {json.dumps(d)[:200]}", status=200, retryable=True)
+            parts = cands[0].get("content", {}).get("parts", []) or []
+            text = "".join(p.get("text", "") for p in parts if "text" in p)
+            tool_calls_out = []
+            for p in parts:
+                fc = p.get("functionCall") or p.get("function_call")
+                if fc:
+                    tool_calls_out.append({
+                        "id": f"call_{uuid.uuid4().hex[:8]}",
+                        "name": fc.get("name", ""),
+                        "arguments": fc.get("args") or fc.get("arguments") or {},
+                    })
+            usage = d.get("usageMetadata") or {}
+            in_tok = usage.get("promptTokenCount", 0) or 0
+            out_tok = usage.get("candidatesTokenCount", 0) or 0
+            stop = (cands[0].get("finishReason") or "STOP").upper()
+            stop_norm = "tool_use" if tool_calls_out else (
+                "max_tokens" if stop == "MAX_TOKENS" else "end_turn"
+            )
+            return {
+                "text": text,
+                "tool_calls": tool_calls_out,
+                "input_tokens": in_tok,
+                "output_tokens": out_tok,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "stop_reason": stop_norm,
+                "model": m,
+                "tool_call_dialect": "native",
+                "reasoning_applied": reasoning_applied,
+            }
+
+
 class GeminiProvider(BaseProvider):
     name = "gemini"
     capabilities = {
@@ -831,6 +1017,9 @@ def build_providers(cache_store):
         out["github"] = GitHubProvider(k, os.getenv("GITHUB_MODEL", "openai/gpt-4.1-mini"))
     if om := os.getenv("OLLAMA_MODEL"):
         out["ollama"] = OllamaProvider(om, os.getenv("OLLAMA_URL", "http://localhost:11434"))
+    if proj := (os.getenv("GCP_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")):
+        loc = os.getenv("GCP_LOCATION") or os.getenv("VERTEX_AI_LOCATION", "us-central1")
+        out["vertex"] = VertexAIProvider(proj, loc, os.getenv("VERTEX_MODEL", "gemini-2.5-flash"))
     return out
 
 

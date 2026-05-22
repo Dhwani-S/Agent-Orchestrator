@@ -18,3 +18,11 @@ build/
 # OS
 Thumbs.db
 .DS_Store
+
+# Agent state (clean between runs)
+state/
+usage.json
+llm_gateway/gateway_v3.db
+
+# Sandbox output
+sandbox/
