@@ -37,6 +37,12 @@ def _format_hits(hits: list[MemoryItem]) -> str:
     for h in hits:
         art_tag = f" [artifact: {h.artifact_id}]" if h.artifact_id else ""
         lines.append(f"  ({h.kind}) {h.descriptor}{art_tag}")
+        if h.value.get("chunk"):
+            lines.append(f"    chunk: {h.value['chunk'][:500]}")
+        elif h.value.get("raw"):
+            lines.append(f"    raw: {str(h.value['raw'])[:300]}")
+        elif h.value.get("value"):
+            lines.append(f"    value: {str(h.value['value'])}")
     return "\n".join(lines) + "\n"
 
 

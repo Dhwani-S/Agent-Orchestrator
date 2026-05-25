@@ -519,6 +519,66 @@ def my_bookings() -> str:
         return json.dumps({"message": "No bookings found.", "bookings": []})
     return json.dumps({"count": len(bookings), "bookings": bookings}, indent=2)
 
+@mcp.tool()
+def index_document(path: str, chunk_size: int = 400, overlap: int = 80) -> dict:
+    """Chunk a sandbox file or artifact and write the chunks into Memory as
+    fact records, where they become FAISS-searchable for later queries.
+    Use this when the content must be searchable across later turns or runs.
+    For one-shot inspection of a file's contents, use read_file."""
+    from memory import Memory
+    from artifacts import ArtifactStore
+
+    if path.startswith("art:"):
+        store = ArtifactStore()
+        blob = store.get(path)
+
+        if blob is None:
+            return {"error": f"Artifact {path} not found."}
+        text = blob.decode("utf-8", errors="ignore")
+    else:
+        p = _safe(path)
+        text = p.read_text(encoding="utf-8")
+
+    words = text.split()
+    step = chunk_size - overlap
+    chunks = []
+    for i in range(0, len(words), step):
+        chunk = " ".join(words[i:i + chunk_size])
+        if chunk:
+            chunks.append(chunk)
+
+    mem = Memory()
+    source_label = f"artifact:{path}" if path.startswith("art:") else f"sandbox:{path}"
+    for idx, chunk in enumerate(chunks):
+        keywords = list(mem._tokenize(chunk))[:15]
+        mem.add_fact(
+            descriptor=f"[{source_label} chunk {idx+1}/{len(chunks)}]",
+            value={"chunk": chunk, "chunk_index": idx, "total_chunks": len(chunks)},
+            keywords=keywords,
+            source=source_label,
+            run_id="mcp"
+        )
+
+    return {"chunks_indexed": len(chunks), "source": path}
+
+@mcp.tool()
+def search_knowledge(query: str, k: int = 5) -> list[dict]:
+    """Vector search over previously indexed fact chunks. Use this rather
+    than re-fetching or re-reading source files when Memory already
+    contains indexed chunks for the topic."""
+    from memory import Memory
+
+    mem = Memory()
+    hits = mem.read(query, history=[], kinds=["fact"], top_k=k)
+    return [
+        {
+            "descriptor": h.descriptor,
+            "chunk": h.value.get("chunk", "")[:500],
+            "source": h.source,
+            "score": h.confidence
+        }
+        for h in hits
+    ]
 
 if __name__ == "__main__":
     mcp.run(transport="stdio")

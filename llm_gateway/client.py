@@ -70,6 +70,20 @@ class LLM:
                 if d.get("done") or d.get("error"):
                     return
 
+    def embed(self, text:str , *, task_type: str = "retrieval_document") -> list[float]:
+        body = {"text": text, "task_type": task_type}
+        for attempt in range(MAX_RETRIES):
+            r = httpx.post(f"{self.base_url}/v1/embed", json=body, timeout=self.timeout)
+            if r.status_code in (429, 502, 503):
+                delay = RETRY_DELAYS[min(attempt, len(RETRY_DELAYS)-1)]
+                print(f"[gateway] embed {r.status_code} on attempt {attempt+1}. retrying in {delay}s...")
+                time.sleep(delay)
+                continue
+            r.raise_for_status()
+            return r.json()["embedding"]
+        r.raise_for_status()
+        return r.json()["embedding"]
+
     def capabilities(self):
         return httpx.get(f"{self.base_url}/v1/capabilities", timeout=30).json()
 

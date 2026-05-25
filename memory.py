@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import json
 import uuid
+import numpy as np
+import faiss
 from datetime import datetime
 from pathlib import Path
 
 from schemas import MemoryItem
 
 MEMORY_PATH = Path(__file__).parent / "state" / "memory.json"
+FAISS_INDEX_PATH = Path(__file__).parent/"state"/"index.faiss"
+FAISS_IDS_PATH = Path(__file__).parent/"state"/"index.ids.json"
+EMBED_DIM = 768
 
 STOPWORDS = {"the", "a", "an", "is", "are", "was", "were", "in", "on", "at", "to",
              "for", "of", "and", "or", "it", "its", "this", "that", "with", "from",
@@ -37,6 +42,39 @@ class Memory:
         data = [item.model_dump(mode="json") for item in self._items]
         MEMORY_PATH.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
 
+    def _try_embed(self, text: str, task_type: str = "retrieval_document"):
+        try:
+            from llm_gateway.client import LLM
+            return LLM().embed(text, task_type=task_type)
+        except Exception as e:
+            print(f"[memory] embed failed: {e}")
+            return None
+        
+    def _load_faiss(self):
+        if FAISS_INDEX_PATH.exists() and FAISS_IDS_PATH.exists():
+            index = faiss.read_index(str(FAISS_INDEX_PATH))
+            ids = json.loads(FAISS_IDS_PATH .read_text(encoding="utf-8"))
+            return index, ids
+        index = faiss.IndexFlatIP(EMBED_DIM)
+        return index, []
+    
+    def _append_to_faiss(self, item_id: str, embedding: list[float]):
+        index, ids = self._load_faiss()
+        vec = np.array([embedding], dtype=np.float32)
+        vec = vec/np.linalg.norm(vec) # L2 normalize -> cosine similarity
+        index.add(vec)
+        ids.append(item_id)
+        FAISS_INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
+        faiss.write_index(index, str(FAISS_INDEX_PATH))
+        FAISS_IDS_PATH.write_text(json.dumps(ids), encoding="utf-8")
+
+    def _persist_item(self, item: MemoryItem):
+        self._items.append(item)
+        self._save()
+        if item.embedding is not None:
+            self._append_to_faiss(item.id, item.embedding)
+        return item
+        
     #tokenizer
     def _tokenize(self, text: str) -> set[str]:
         import re
@@ -47,6 +85,29 @@ class Memory:
     # reads (no LLM)
     def read(self, query: str, history: list[dict], kinds: list[str] | None = None, top_k: int = 8) -> list[MemoryItem]:
         self._ensure_loaded()
+
+        # vector path (first try)
+        query_vec = self._try_embed(query, task_type="retrieval_query")
+        if query_vec is not None:
+            index, ids = self._load_faiss()
+            if index.ntotal > 0:
+                vec = np.array([query_vec], dtype=np.float32)
+                vec = vec/np.linalg.norm(vec)
+                distances, indices = index.search(vec, min(top_k, index.ntotal))
+
+                id_to_item = {item.id: item for item in self._items}
+                results = []
+                for dist, idx in zip(distances[0], indices[0]):
+                    if idx == -1 or dist < 0.3:
+                        continue
+                    item_id = ids[idx]
+                    item = id_to_item.get(item_id)
+                    if item and (not kinds or item.kind in kinds):
+                        results.append(item)
+                if results:
+                    return results
+                
+        # keyword fallback
         query_tokens = self._tokenize(query)
         
         # pull tokens from recent history
@@ -78,6 +139,22 @@ class Memory:
         if recent:
             results = results[-recent:]
         return results
+    
+    def add_fact(self, descriptor: str, *, value: dict, keywords: list[str], source: str, run_id: str, goal_id: str | None = None) -> MemoryItem:
+        self._ensure_loaded()
+        embedding = self._try_embed(descriptor, task_type="retrieval_document")
+        item = MemoryItem(
+            id=uuid.uuid4().hex[:12],
+            kind="fact",
+            keywords=[k.lower() for k in keywords],
+            descriptor=descriptor,
+            value=value,
+            source=source,
+            embedding=embedding,
+            run_id=run_id,
+            goal_id=goal_id,
+        )
+        return self._persist_item(item)
     
     # writes
     def remember(self, raw_text: str, source: str, run_id: str, goal_id: str | None = None):
@@ -116,6 +193,9 @@ class Memory:
         )
 
         parsed = resp.get("parsed") or json.loads(resp["text"])
+        embedding = None
+        if parsed["kind"] != "scratchpad":
+            embedding = self._try_embed(parsed["descriptor"])
 
         item = MemoryItem(
             id=uuid.uuid4().hex[:12],
@@ -127,10 +207,10 @@ class Memory:
             run_id=run_id,
             goal_id=goal_id,
             confidence=0.9,
+            embedding=embedding,
         )
-        self._items.append(item)
-        self._save()
-        return item
+
+        return self._persist_item(item)
     
     def record_outcome(self, tool_call, result_text: str, artifact_id: str | None,
                        run_id: str, goal_id: str | None = None):
@@ -139,6 +219,8 @@ class Memory:
         keywords = [tool_call.name.lower()]
         keywords += list(self._tokenize(" ".join(str(v) for v in tool_call.arguments.values())))
         keywords += list(self._tokenize(result_text[:200]))[:5]
+
+        embedding = self._try_embed(result_text[:200])
 
         item = MemoryItem(
             id=uuid.uuid4().hex[:12],
@@ -150,7 +232,6 @@ class Memory:
             source=f"tool:{tool_call.name}",
             run_id=run_id,
             goal_id=goal_id,
+            embedding=embedding,
         )
-        self._items.append(item)
-        self._save()
-        return item
+        return self._persist_item(item)

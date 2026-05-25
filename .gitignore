@@ -26,3 +26,7 @@ llm_gateway/gateway_v3.db
 
 # Sandbox output
 sandbox/
+
+# Lecture & assignment files (local only)
+context*.txt
+assignment*.txt
