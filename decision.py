@@ -102,11 +102,33 @@ def _format_attached(attached: list[tuple[str, bytes]]) -> str:
 
 
 def _format_history(history: list[dict]) -> str:
+    """Format recent agent history for LLM context.
+    
+    Shows last 10 iterations of tool calls and answers, helping LLM avoid repetition.
+    Part of Rule 7-9 to prevent decision loop issues.
+    
+    Args:
+        history: Event list from agent execution
+        
+    Returns:
+        Formatted string showing tool calls and answers, or empty string if no history
+    """
     if not history:
         return ""
     lines = ["RECENT HISTORY:"]
     for event in history[-10:]:
         if event.get("kind") == "action":
+            lines.append(f"  iter {event['iter']}: TOOL {event['tool']}({event.get('arguments', {})}) -> {event.get('result_descriptor', '')}")
+        elif event.get("kind") == "answer":
+            lines.append(f"  iter {event['iter']}: ANSWER: {event.get('text', '')}")
+    return "\n".join(lines) + "\n"
+
+
+def next_step(goal: Goal, hits: list[MemoryItem],
+              attached: list[tuple[str, bytes]],
+              history: list[dict],
+              mcp_tools: list[dict],
+              user_query: str = "") -> DecisionOutput:
     """Execute decision step: choose tool or synthesize answer.
     
     Core decision logic that evaluates context and decides whether to call a tool
@@ -123,23 +145,7 @@ def _format_history(history: list[dict]) -> str:
         
     Returns:
         DecisionOutput with either tool_call or answer field populated
-        
-    Notes:
-        - Limits artifact content to 8000 chars per Rule 4 (rate limit safety)
-        - Formats history to show last 10 iterations (Rule 7: avoid repeats)
-        - Uses auto_route="decision" to gateway for efficient LLM routing
-    """            lines.append(f"  iter {event['iter']}: TOOL {event['tool']}({event.get('arguments', {})}) -> {event.get('result_descriptor', '')}")
-        elif event.get("kind") == "answer":
-            lines.append(f"  iter {event['iter']}: ANSWER: {event.get('text', '')}")
-    return "\n".join(lines) + "\n"
-
-
-def next_step(goal: Goal, hits: list[MemoryItem],
-              attached: list[tuple[str, bytes]],
-              history: list[dict],
-              mcp_tools: list[dict],
-              user_query: str = "") -> DecisionOutput:
-
+    """
     prompt = (
         f"USER QUERY: {user_query}\n\n"
         f"CURRENT GOAL: {goal.text}\n\n"
