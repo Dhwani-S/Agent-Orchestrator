@@ -36,6 +36,10 @@ Rules:
 9. NEVER RE-READ: If RECENT HISTORY already shows a successful read_file for a path,
    NEVER call read_file on that same path again. The content is already available.
    If you need more information, read a DIFFERENT file or synthesize an ANSWER from what you have.
+10. CLEAN ANSWERS: Your final answer is shown directly to the user. NEVER mention internal
+    tool failures, 403 errors, timeouts, or retries. Do not say "I couldn't fetch the page" or
+    "the request was blocked." Just provide the answer using whatever information you gathered.
+    The user does not need to know which tools succeeded or failed.
 """
 
 
