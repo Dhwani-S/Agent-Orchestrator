@@ -50,13 +50,29 @@ class DualLogger:
 
 
 def _query_slug(query: str) -> str:
-    """Short slug from query for the log filename."""
+    """Generate short slug from query for log filename.
+    
+    Takes first 5 words, converts to alphanumeric snake_case.
+    
+    Args:
+        query: User query string
+        
+    Returns:
+        Slug suitable for use in filename (max 40 chars)
+    """
     words = query.lower().split()[:5]
     slug = "_".join(w for w in words if w.isalnum())
     return slug[:40] or "query"
 
 
 def ensure_gateway():
+    """Verify LLM Gateway V7 is running and reachable.
+    
+    Makes HTTP health check to gateway /v1/capabilities endpoint.
+    
+    Raises:
+        RuntimeError: If gateway is unreachable
+    """
     import httpx
     try:
         httpx.get(f"{GATEWAY_URL}/v1/capabilities", timeout=5)
@@ -66,6 +82,14 @@ def ensure_gateway():
 
 @asynccontextmanager
 async def mcp_session():
+    """Context manager for MCP server connection.
+    
+    Establishes stdio transport to mcp_server.py.py, initializes session.
+    Automatically cleans up on exit.
+    
+    Yields:
+        ClientSession for tool invocation
+    """
     server_params = StdioServerParameters(
         command=sys.executable,
         args=[MCP_SERVER_PATH],
@@ -77,6 +101,16 @@ async def mcp_session():
 
 
 async def load_tools(session: ClientSession) -> list[dict]:
+    """Load tool signatures from MCP server.
+    
+    Fetches list of available tools with their schemas for LLM decision making.
+    
+    Args:
+        session: Active MCP client session
+        
+    Returns:
+        List of tool definition dicts with name, description, schema
+    """
     result = await session.list_tools()
     return [
         {
@@ -89,6 +123,16 @@ async def load_tools(session: ClientSession) -> list[dict]:
 
 
 def final_answer_from(history: list[dict]) -> str:
+    """Extract final answer from execution history.
+    
+    Prefers explicit answer events. Falls back to last action result descriptor.
+    
+    Args:
+        history: Agent execution event list
+        
+    Returns:
+        Final answer text or fallback description
+    """
     answers = [e["text"] for e in history if e.get("kind") == "answer"]
     if answers:
         return answers[-1]
@@ -97,6 +141,25 @@ def final_answer_from(history: list[dict]) -> str:
 
 
 async def run(query: str) -> str:
+    """Execute cognitive agent loop on user query.
+    
+    Core orchestration: Perception → Decision → Action loop up to MAX_ITERATIONS.
+    Logs all activity to timestamped file in ./logs/ directory.
+    
+    Process:
+        1. Perceive: Decompose query into goals
+        2. For each iteration until done or max_iterations:
+           a. Check goal satisfaction
+           b. Decide: choose tool or synthesize answer
+           c. Action: execute tool or return answer
+        3. Return final answer
+    
+    Args:
+        query: User query string
+        
+    Returns:
+        Final synthesized answer
+    """
     ensure_gateway()
     run_id = uuid.uuid4().hex[:8]
     history: list[dict] = []
