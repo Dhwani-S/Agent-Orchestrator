@@ -47,7 +47,8 @@ class Memory:
             from llm_gateway.client import LLM
             return LLM().embed(text, task_type=task_type)
         except Exception as e:
-            print(f"[memory] embed failed: {e}")
+            import sys
+            print(f"[memory] embed failed: {e}", file=sys.stderr)
             return None
         
     def _load_faiss(self):
@@ -187,7 +188,7 @@ class Memory:
         resp = llm.chat(
             prompt=raw_text,
             system=system,
-            provider="v",
+            auto_route="decision",
             temperature=0.3,
             response_format={"type": "json_schema", "schema": classify_schema, "name": "memory_classify"},
         )

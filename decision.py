@@ -27,6 +27,15 @@ Rules:
 6. ERROR HANDLING: If RECENT HISTORY shows a tool failed (403, timeout, error),
    try a different tool or approach. Do not retry the exact same call.
    If you are unsure, prefer giving a partial answer over making no progress.
+7. NO REPEATS: If RECENT HISTORY shows search_knowledge returned empty or no results,
+   do NOT call search_knowledge again. Instead, use read_file to get the document content
+   directly, or give your answer based on information already in RECENT HISTORY.
+8. USE WHAT YOU HAVE: If RECENT HISTORY contains read_file results with document content,
+   you already have enough information to extract key points and answer analytical questions.
+   Do the analysis from the content you have — do not call more tools.
+9. NEVER RE-READ: If RECENT HISTORY already shows a successful read_file for a path,
+   NEVER call read_file on that same path again. The content is already available.
+   If you need more information, read a DIFFERENT file or synthesize an ANSWER from what you have.
 """
 
 
@@ -52,10 +61,10 @@ def _format_attached(attached: list[tuple[str, bytes]]) -> str:
     lines = ["ATTACHED ARTIFACTS:"]
     for art_id, blob in attached:
         try:
-            text = blob.decode("utf-8", errors="replace")[:20_000]
+            text = blob.decode("utf-8", errors="replace")[:8_000]
         except Exception:
             text = f"[binary, {len(blob)} bytes]"
-        lines.append(f"--- {art_id} ---")
+        lines.append(f"--- {art_id} ({len(blob)} bytes, showing first 8000 chars) ---")
         lines.append(text)
     return "\n".join(lines) + "\n"
 

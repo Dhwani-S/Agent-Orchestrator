@@ -125,7 +125,7 @@ def observe(query: str, hits: list[MemoryItem], history: list[dict],
     resp = llm.chat(
         prompt=prompt,
         system=PERCEPTION_SYSTEM,
-        provider="v",
+        auto_route="decision",
         temperature=1.0,
         max_tokens=2048,
         response_format={"type": "json_schema", "schema": OBSERVATION_SCHEMA, "name": "observation"},

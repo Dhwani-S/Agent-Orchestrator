@@ -30,3 +30,9 @@ sandbox/
 # Lecture & assignment files (local only)
 context*.txt
 assignment*.txt
+
+# Logs and build artifacts
+logs/
+__MACOSX/
+S7code/
+*.log

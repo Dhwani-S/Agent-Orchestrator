@@ -26,6 +26,8 @@ import httpx
 from ddgs import DDGS
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
+from memory import Memory
+from artifacts import ArtifactStore
 
 MAX_SEARCH_RESULTS = 5  # hard cap — Tavily prices per result
 
@@ -42,6 +44,10 @@ _usage_lock = threading.Lock()
 
 
 def _safe(path: str) -> Path:
+    # Strip leading "sandbox/" so callers can pass either relative-to-sandbox
+    # or absolute-looking paths like "sandbox/papers/foo.md".
+    if path.startswith("sandbox/") or path.startswith("sandbox\\"):
+        path = path[len("sandbox/"):]
     p = (SANDBOX / path).resolve()
     base = SANDBOX.resolve()
     if p != base and base not in p.parents:
@@ -122,7 +128,7 @@ def _ddg_search(query: str, max_results: int) -> list[dict]:
     ]
 
 
-async def _crawl4ai_fetch(url: str, timeout: int = 30) -> dict:
+def _crawl4ai_fetch_sync(url: str, timeout: int = 30) -> dict:
     """Fetch URL content via httpx + html2text (clean markdown output)."""
     import html2text
     headers = {"User-Agent": "Mozilla/5.0 (compatible; Agent6/1.0)"}
@@ -147,26 +153,32 @@ async def _crawl4ai_fetch(url: str, timeout: int = 30) -> dict:
 
 
 @mcp.tool()
-def web_search(query: str, max_results: int = 5) -> list[dict]:
+async def web_search(query: str, max_results: int = 5) -> list[dict]:
     """Search the web (Tavily primary, DDG fallback). Hard-capped at 5 results. Example: web_search("python asyncio tutorial", 3)."""
-    max_results = max(1, min(max_results, MAX_SEARCH_RESULTS))
-    if os.environ.get("TAVILY_API_KEY") and _under_cap("tavily"):
-        try:
-            results = _tavily_search(query, max_results)
-            if results:
-                _bump("tavily")
-                return results
-        except Exception:
-            _bump("tavily", "errors")
-    results = _ddg_search(query, max_results)
-    _bump("duckduckgo")
-    return results
+    import anyio
+
+    def _do_search():
+        mr = max(1, min(max_results, MAX_SEARCH_RESULTS))
+        if os.environ.get("TAVILY_API_KEY") and _under_cap("tavily"):
+            try:
+                results = _tavily_search(query, mr)
+                if results:
+                    _bump("tavily")
+                    return results
+            except Exception:
+                _bump("tavily", "errors")
+        results = _ddg_search(query, mr)
+        _bump("duckduckgo")
+        return results
+
+    return await anyio.to_thread.run_sync(_do_search)
 
 
 @mcp.tool()
 async def fetch_url(url: str, timeout: int = 20) -> dict:
     """Fetch clean markdown from a URL via crawl4ai (headless Chromium). Example: fetch_url("https://example.com")."""
-    return await _crawl4ai_fetch(url)
+    import anyio
+    return await anyio.to_thread.run_sync(lambda: _crawl4ai_fetch_sync(url, timeout))
 
 
 @mcp.tool()
@@ -185,25 +197,30 @@ def get_time(timezone: str = "UTC") -> dict:
 
 
 @mcp.tool()
-def currency_convert(amount: float, from_currency: str, to_currency: str) -> dict:
+async def currency_convert(amount: float, from_currency: str, to_currency: str) -> dict:
     """Convert money between ISO-3 currencies via frankfurter.dev. Example: currency_convert(100, "USD", "INR")."""
-    f = from_currency.upper()
-    t = to_currency.upper()
-    url = f"https://api.frankfurter.dev/v1/latest?amount={amount}&base={f}&symbols={t}"
-    with httpx.Client(timeout=20, follow_redirects=True) as client:
-        r = client.get(url)
-        r.raise_for_status()
-        data = r.json()
-    converted = data["rates"][t]
-    return {
-        "amount": amount,
-        "from": f,
-        "to": t,
-        "rate": converted / amount if amount else 0.0,
-        "converted": converted,
-        "date": data["date"],
-        "source": "frankfurter.dev",
-    }
+    import anyio
+
+    def _do_convert():
+        f = from_currency.upper()
+        t = to_currency.upper()
+        url = f"https://api.frankfurter.dev/v1/latest?amount={amount}&base={f}&symbols={t}"
+        with httpx.Client(timeout=20, follow_redirects=True) as client:
+            r = client.get(url)
+            r.raise_for_status()
+            data = r.json()
+        converted = data["rates"][t]
+        return {
+            "amount": amount,
+            "from": f,
+            "to": t,
+            "rate": converted / amount if amount else 0.0,
+            "converted": converted,
+            "date": data["date"],
+            "source": "frankfurter.dev",
+        }
+
+    return await anyio.to_thread.run_sync(_do_convert)
 
 
 @mcp.tool()
@@ -520,65 +537,72 @@ def my_bookings() -> str:
     return json.dumps({"count": len(bookings), "bookings": bookings}, indent=2)
 
 @mcp.tool()
-def index_document(path: str, chunk_size: int = 400, overlap: int = 80) -> dict:
+async def index_document(path: str, chunk_size: int = 400, overlap: int = 80) -> dict:
     """Chunk a sandbox file or artifact and write the chunks into Memory as
     fact records, where they become FAISS-searchable for later queries.
     Use this when the content must be searchable across later turns or runs.
     For one-shot inspection of a file's contents, use read_file."""
-    from memory import Memory
-    from artifacts import ArtifactStore
+    import anyio
 
-    if path.startswith("art:"):
-        store = ArtifactStore()
-        blob = store.get(path)
+    def _do_index():
+        if path.startswith("art:"):
+            store = ArtifactStore()
+            blob = store.get(path)
 
-        if blob is None:
-            return {"error": f"Artifact {path} not found."}
-        text = blob.decode("utf-8", errors="ignore")
-    else:
-        p = _safe(path)
-        text = p.read_text(encoding="utf-8")
+            if blob is None:
+                return {"error": f"Artifact {path} not found."}
+            text = blob.decode("utf-8", errors="ignore")
+        else:
+            p = _safe(path)
+            text = p.read_text(encoding="utf-8")
 
-    words = text.split()
-    step = chunk_size - overlap
-    chunks = []
-    for i in range(0, len(words), step):
-        chunk = " ".join(words[i:i + chunk_size])
-        if chunk:
-            chunks.append(chunk)
+        words = text.split()
+        step = chunk_size - overlap
+        chunks = []
+        for i in range(0, len(words), step):
+            chunk = " ".join(words[i:i + chunk_size])
+            if chunk:
+                chunks.append(chunk)
 
-    mem = Memory()
-    source_label = f"artifact:{path}" if path.startswith("art:") else f"sandbox:{path}"
-    for idx, chunk in enumerate(chunks):
-        keywords = list(mem._tokenize(chunk))[:15]
-        mem.add_fact(
-            descriptor=f"[{source_label} chunk {idx+1}/{len(chunks)}]",
-            value={"chunk": chunk, "chunk_index": idx, "total_chunks": len(chunks)},
-            keywords=keywords,
-            source=source_label,
-            run_id="mcp"
-        )
+        mem = Memory()
+        source_label = f"artifact:{path}" if path.startswith("art:") else f"sandbox:{path}"
+        for idx, chunk in enumerate(chunks):
+            keywords = list(mem._tokenize(chunk))[:15]
+            mem.add_fact(
+                descriptor=f"[{source_label} chunk {idx+1}/{len(chunks)}]",
+                value={"chunk": chunk, "chunk_index": idx, "total_chunks": len(chunks)},
+                keywords=keywords,
+                source=source_label,
+                run_id="mcp"
+            )
 
-    return {"chunks_indexed": len(chunks), "source": path}
+        return {"chunks_indexed": len(chunks), "source": path}
+
+    return await anyio.to_thread.run_sync(_do_index)
 
 @mcp.tool()
-def search_knowledge(query: str, k: int = 5) -> list[dict]:
+async def search_knowledge(query: str, k: int = 5) -> list[dict] | str:
     """Vector search over previously indexed fact chunks. Use this rather
     than re-fetching or re-reading source files when Memory already
     contains indexed chunks for the topic."""
-    from memory import Memory
+    import anyio
 
-    mem = Memory()
-    hits = mem.read(query, history=[], kinds=["fact"], top_k=k)
-    return [
-        {
-            "descriptor": h.descriptor,
-            "chunk": h.value.get("chunk", "")[:500],
-            "source": h.source,
-            "score": h.confidence
-        }
-        for h in hits
-    ]
+    def _do_search():
+        mem = Memory()
+        hits = mem.read(query, history=[], kinds=["fact"], top_k=k)
+        if not hits:
+            return "NO_RESULTS: search_knowledge found no matches. Use read_file to access document content directly instead of retrying this tool."
+        return [
+            {
+                "descriptor": h.descriptor,
+                "chunk": h.value.get("chunk", "")[:500],
+                "source": h.source,
+                "score": h.confidence
+            }
+            for h in hits
+        ]
+
+    return await anyio.to_thread.run_sync(_do_search)
 
 if __name__ == "__main__":
     mcp.run(transport="stdio")

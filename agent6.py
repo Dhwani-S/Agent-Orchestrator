@@ -22,7 +22,7 @@ import action
 
 MAX_ITERATIONS = 15
 MCP_SERVER_PATH = "mcp_server.py.py"
-GATEWAY_URL = "http://localhost:8101"
+GATEWAY_URL = os.getenv("LLM_GATEWAY_V7_URL", "http://localhost:8107")
 LOGS_DIR = Path("logs")
 
 

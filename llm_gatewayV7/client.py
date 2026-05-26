@@ -1,10 +1,8 @@
-"""Python client for LLM Gateway V3. Adds auto_route kwarg on top of V2."""
-import os, json, sys, time, httpx
+"""Python client for LLM Gateway V7. Adds an embed() method on top of V3."""
+import os, json, httpx
 from typing import Any, Optional
 
 DEFAULT_URL = os.getenv("LLM_GATEWAY_V7_URL", "http://localhost:8107")
-MAX_RETRIES = 8
-RETRY_DELAYS = [10, 15, 20, 30, 30, 45, 60, 60]
 
 
 class LLM:
@@ -33,15 +31,7 @@ class LLM:
             "auto_route": auto_route,
         }
         body = {k: v for k, v in body.items() if v is not None}
-        for attempt in range(MAX_RETRIES):
-            r = httpx.post(f"{self.base_url}/v1/chat", json=body, timeout=self.timeout)
-            if r.status_code in (429, 502, 503):
-                delay = RETRY_DELAYS[min(attempt, len(RETRY_DELAYS) - 1)]
-                print(f"[gateway] {r.status_code} on attempt {attempt+1}, retrying in {delay}s...", file=sys.stderr)
-                time.sleep(delay)
-                continue
-            r.raise_for_status()
-            return r.json()
+        r = httpx.post(f"{self.base_url}/v1/chat", json=body, timeout=self.timeout)
         r.raise_for_status()
         return r.json()
 
@@ -70,22 +60,19 @@ class LLM:
                 if d.get("done") or d.get("error"):
                     return
 
-    def embed(self, text:str , *, task_type: str = "retrieval_document", max_retries: int = 3) -> list[float]:
-        body = {"text": text, "task_type": task_type}
-        for attempt in range(max_retries):
-            r = httpx.post(f"{self.base_url}/v1/embed", json=body, timeout=self.timeout)
-            if r.status_code in (429, 502, 503):
-                delay = RETRY_DELAYS[min(attempt, len(RETRY_DELAYS)-1)]
-                print(f"[gateway] embed {r.status_code} on attempt {attempt+1}. retrying in {delay}s...", file=sys.stderr)
-                time.sleep(delay)
-                continue
-            r.raise_for_status()
-            return r.json()["embedding"]
-        r.raise_for_status()
-        return r.json()["embedding"]
-
     def capabilities(self):
         return httpx.get(f"{self.base_url}/v1/capabilities", timeout=30).json()
+
+    def embed(self, text: str,
+              task_type: str = "retrieval_document",
+              provider: Optional[str] = None) -> dict:
+        """Returns {provider, model, embedding, dim, latency_ms, attempted}."""
+        body = {"text": text, "task_type": task_type}
+        if provider:
+            body["provider"] = provider
+        r = httpx.post(f"{self.base_url}/v1/embed", json=body, timeout=self.timeout)
+        r.raise_for_status()
+        return r.json()
 
 
 def ask(prompt: str, provider: str = None, **kw) -> str:
