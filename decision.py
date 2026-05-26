@@ -40,6 +40,16 @@ Rules:
 
 
 def _format_hits(hits: list[MemoryItem]) -> str:
+    """Format memory hits for LLM context.
+    
+    Transforms vector search results into readable format with artifacts and content snippets.
+    
+    Args:
+        hits: List of memory items from FAISS search
+        
+    Returns:
+        Formatted string for inclusion in LLM prompt, or empty string if no hits
+    """
     if not hits:
         return ""
     lines = ["MEMORY HITS:"]
@@ -56,9 +66,31 @@ def _format_hits(hits: list[MemoryItem]) -> str:
 
 
 def _format_attached(attached: list[tuple[str, bytes]]) -> str:
+    """Format attached artifacts for LLM context.
+    
+    Converts artifact blobs to readable text with size information and truncation.
+    Limits output to 8000 characters to prevent overwhelming rate-limited APIs.
+    
+    Args:
+        attached: List of (artifact_id, binary_blob) tuples
+        
+    Returns:
+        Formatted string for inclusion in LLM prompt, or empty string if none attached
+    """
     if not attached:
         return ""
     lines = ["ATTACHED ARTIFACTS:"]
+    """Format recent agent history for LLM context.
+    
+    Shows last 10 iterations of tool calls and answers, helping LLM avoid repetition.
+    Part of Rule 7-9 to prevent decision loop issues.
+    
+    Args:
+        history: List of event dictionaries from agent execution
+        
+    Returns:
+        Formatted string showing tool calls and answers, or empty string if no history
+    """
     for art_id, blob in attached:
         try:
             text = blob.decode("utf-8", errors="replace")[:8_000]
@@ -75,7 +107,28 @@ def _format_history(history: list[dict]) -> str:
     lines = ["RECENT HISTORY:"]
     for event in history[-10:]:
         if event.get("kind") == "action":
-            lines.append(f"  iter {event['iter']}: TOOL {event['tool']}({event.get('arguments', {})}) -> {event.get('result_descriptor', '')}")
+    """Execute decision step: choose tool or synthesize answer.
+    
+    Core decision logic that evaluates context and decides whether to call a tool
+    or generate a final answer. Uses DECISION_SYSTEM prompt with Rules 1-9 to
+    prevent looping and ensure high-quality reasoning.
+    
+    Args:
+        goal: Current perception goal to fulfill
+        hits: Memory items from vector search (context)
+        attached: Attached artifact blobs for analysis
+        history: Recent iteration history (last 10 actions)
+        mcp_tools: Available MCP tools with signatures
+        user_query: Original user query for reference
+        
+    Returns:
+        DecisionOutput with either tool_call or answer field populated
+        
+    Notes:
+        - Limits artifact content to 8000 chars per Rule 4 (rate limit safety)
+        - Formats history to show last 10 iterations (Rule 7: avoid repeats)
+        - Uses auto_route="decision" to gateway for efficient LLM routing
+    """            lines.append(f"  iter {event['iter']}: TOOL {event['tool']}({event.get('arguments', {})}) -> {event.get('result_descriptor', '')}")
         elif event.get("kind") == "answer":
             lines.append(f"  iter {event['iter']}: ANSWER: {event.get('text', '')}")
     return "\n".join(lines) + "\n"
