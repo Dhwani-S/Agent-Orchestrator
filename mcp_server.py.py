@@ -44,8 +44,20 @@ _usage_lock = threading.Lock()
 
 
 def _safe(path: str) -> Path:
-    # Strip leading "sandbox/" so callers can pass either relative-to-sandbox
-    # or absolute-looking paths like "sandbox/papers/foo.md".
+    """Resolve file path with sandbox boundary protection.
+    
+    Enforces that all file operations stay within ./sandbox/ directory.
+    Strips leading "sandbox/" prefix so callers can use relative paths.
+    
+    Args:
+        path: File path, may start with "sandbox/"
+        
+    Returns:
+        Resolved Path object within sandbox
+        
+    Raises:
+        ValueError: If resolved path escapes sandbox boundary
+    """
     if path.startswith("sandbox/") or path.startswith("sandbox\\"):
         path = path[len("sandbox/"):]
     p = (SANDBOX / path).resolve()
@@ -56,6 +68,14 @@ def _safe(path: str) -> Path:
 
 
 def _empty_usage(month: str) -> dict:
+    """Create empty usage tracking record for a month.
+    
+    Args:
+        month: Month string in YYYY-MM format
+        
+    Returns:
+        Dict with Tavily and DuckDuckGo usage counters set to 0
+    """
     return {
         "month": month,
         "tavily": {"count": 0, "errors": 0},
@@ -64,6 +84,11 @@ def _empty_usage(month: str) -> dict:
 
 
 def _load_usage() -> dict:
+    """Load API usage statistics from disk or create for current month.
+    
+    Returns:
+        Dict with usage counts for Tavily and DuckDuckGo (max 950/month for Tavily)
+    """
     month = datetime.now().strftime("%Y-%m")
     if not USAGE_PATH.exists():
         return _empty_usage(month)
@@ -79,10 +104,21 @@ def _load_usage() -> dict:
 
 
 def _save_usage(data: dict) -> None:
+    """Save API usage statistics to disk.
+    
+    Args:
+        data: Usage tracking dictionary
+    """
     USAGE_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
 def _bump(provider: str, field: str = "count") -> None:
+    """Increment usage counter for a provider (thread-safe).
+    
+    Args:
+        provider: "tavily" or "duckduckgo"
+        field: Counter to increment (default "count")
+    """
     with _usage_lock:
         data = _load_usage()
         data[provider][field] = data[provider].get(field, 0) + 1
@@ -90,10 +126,27 @@ def _bump(provider: str, field: str = "count") -> None:
 
 
 def _under_cap(provider: str) -> bool:
+    """Check if provider usage is under monthly cap.
+    
+    Args:
+        provider: "tavily" or "duckduckgo"
+        
+    Returns:
+        True if usage < MONTHLY_CAP (950)
+    """
     return _load_usage()[provider]["count"] < MONTHLY_CAP
 
 
 def _tavily_search(query: str, max_results: int) -> list[dict]:
+    """Execute search via Tavily API.
+    
+    Args:
+        query: Search query string
+        max_results: Maximum results to return
+        
+    Returns:
+        List of dicts with title, url, snippet
+    """
     from tavily import TavilyClient
 
     client = TavilyClient(os.environ["TAVILY_API_KEY"])
@@ -109,6 +162,17 @@ def _tavily_search(query: str, max_results: int) -> list[dict]:
 
 
 def _ddg_search(query: str, max_results: int) -> list[dict]:
+    """Execute search via DuckDuckGo with multi-backend fallback.
+    
+    Tries auto, html, and lite backends in sequence to ensure results.
+    
+    Args:
+        query: Search query string
+        max_results: Maximum results to return
+        
+    Returns:
+        List of dicts with title, url, snippet
+    """
     hits: list[dict] = []
     with DDGS() as ddgs:
         for backend in ("auto", "html", "lite"):
