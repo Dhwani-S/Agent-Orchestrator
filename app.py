@@ -94,7 +94,21 @@ async def chat(q: str):
                         attached.append((goal.attach_artifact_id, blob))
                         yield send({"type": "attach", "artifact_id": goal.attach_artifact_id, "size": len(blob)})
 
-                    out = decision.next_step(goal, hits, attached, history, tools, user_query=q)
+                    try:
+                        out = decision.next_step(goal, hits, attached, history, tools, user_query=q)
+                    except Exception as dec_err:
+                        err_msg = str(dec_err)
+                        if "503" in err_msg or "429" in err_msg or "Service Unavailable" in err_msg:
+                            yield send({"type": "log", "message": f"Rate limited — waiting 15s before retry (iter {it})..."})
+                            import asyncio as _aio
+                            await _aio.sleep(15)
+                            try:
+                                out = decision.next_step(goal, hits, attached, history, tools, user_query=q)
+                            except Exception as retry_err:
+                                yield send({"type": "error", "message": f"Gateway still unavailable after retry: {retry_err}"})
+                                return
+                        else:
+                            raise
 
                     if out.is_answer:
                         yield send({"type": "answer", "iter": it, "goal": goal.text, "text": out.answer})

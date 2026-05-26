@@ -4,7 +4,7 @@ from typing import Any, Optional
 
 DEFAULT_URL = os.getenv("LLM_GATEWAY_V7_URL", "http://localhost:8107")
 MAX_RETRIES = 8
-RETRY_DELAYS = [10, 15, 20, 30, 30, 45, 60, 60]
+RETRY_DELAYS = [5, 8, 10, 15, 20, 30, 30, 45]
 
 
 class LLM:
