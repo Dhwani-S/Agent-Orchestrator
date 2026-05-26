@@ -9,7 +9,23 @@ ARTIFACT_THRESHOLD_BYTES = 4096  # 4 KB
 
 async def execute(session: ClientSession, tool_call: ToolCall,
                   artifact_store: ArtifactStore) -> tuple[str, str | None]:
-    """Dispatch a tool call via MCP. Returns (descriptor, artifact_id_or_None)."""
+    """Execute tool call via MCP and handle artifact storage.
+    
+    - Validates that artifact handles are not passed as arguments
+    - Calls tool via MCP with arguments
+    - If result > 4KB, stores in artifact store and returns compact descriptor
+    - If result <= 4KB, returns inline text
+    
+    Args:
+        session: Active MCP client session
+        tool_call: Tool name + arguments
+        artifact_store: Artifact storage for large results
+        
+    Returns:
+        Tuple of (descriptor_text, artifact_id_or_None)
+        - descriptor_text: Result summary or error message (for decision layer)
+        - artifact_id: "art:HASH" if result was stored, None otherwise
+    """
 
     # Guard: block artifact handles passed as tool arguments
     for key, val in tool_call.arguments.items():
