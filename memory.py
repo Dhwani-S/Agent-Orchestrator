@@ -43,6 +43,18 @@ class Memory:
         MEMORY_PATH.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
 
     def _try_embed(self, text: str, task_type: str = "retrieval_document"):
+        """Attempt to embed text using LLM Gateway with fallback.
+        
+        Wraps embedding calls with error handling. Returns None on failure
+        so calling code can fall back to keyword search.
+        
+        Args:
+            text: Text to embed
+            task_type: Either "retrieval_document" or "retrieval_query"
+            
+        Returns:
+            List of 768 floats on success, None on error
+        """
         try:
             from llm_gateway.client import LLM
             return LLM().embed(text, task_type=task_type)
@@ -52,6 +64,11 @@ class Memory:
             return None
         
     def _load_faiss(self):
+        """Load FAISS index from disk or create new.
+        
+        Returns:
+            Tuple of (FAISS index, list of item IDs in index order)
+        """
         if FAISS_INDEX_PATH.exists() and FAISS_IDS_PATH.exists():
             index = faiss.read_index(str(FAISS_INDEX_PATH))
             ids = json.loads(FAISS_IDS_PATH .read_text(encoding="utf-8"))
@@ -60,6 +77,12 @@ class Memory:
         return index, []
     
     def _append_to_faiss(self, item_id: str, embedding: list[float]):
+        """Add embedding to FAISS index with L2 normalization for cosine similarity.
+        
+        Args:
+            item_id: Memory item ID (for later retrieval)
+            embedding: Vector to add (should be 768 dimensions)
+        """
         index, ids = self._load_faiss()
         vec = np.array([embedding], dtype=np.float32)
         vec = vec/np.linalg.norm(vec) # L2 normalize -> cosine similarity
@@ -85,6 +108,20 @@ class Memory:
     
     # reads (no LLM)
     def read(self, query: str, history: list[dict], kinds: list[str] | None = None, top_k: int = 8) -> list[MemoryItem]:
+        """Search memory using vector + keyword hybrid retrieval.
+        
+        First attempts vector search (FAISS) using embeddings. Falls back to
+        keyword search if vector search fails or returns no results.
+        
+        Args:
+            query: Search query string
+            history: Recent agent history (used to augment query keywords)
+            kinds: Optional filter by memory kind (e.g., "fact", "preference")
+            top_k: Maximum results to return
+            
+        Returns:
+            List of MemoryItem results, ordered by relevance
+        """
         self._ensure_loaded()
 
         # vector path (first try)
