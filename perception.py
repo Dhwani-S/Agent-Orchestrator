@@ -80,6 +80,16 @@ OBSERVATION_SCHEMA = {
 
 
 def _format_hits(hits: list[MemoryItem]) -> str:
+    """Format memory search results for LLM.
+    
+    Numbers each hit for artifact_index reference in perception output.
+    
+    Args:
+        hits: Memory items from vector search
+        
+    Returns:
+        Formatted string showing hit count and indexed list
+    """
     if not hits:
         return "MEMORY HITS: (none)\n"
     lines = ["MEMORY HITS:"]
@@ -90,6 +100,17 @@ def _format_hits(hits: list[MemoryItem]) -> str:
 
 
 def _format_history(history: list[dict]) -> str:
+    """Format recent agent execution history for LLM.
+    
+    Shows tool calls and answers from last 10 iterations to help perception
+    track which goals have been satisfied.
+    
+    Args:
+        history: Event list from agent execution
+        
+    Returns:
+        Formatted string with tool actions and answers
+    """
     if not history:
         return "HISTORY: (none)\n"
     lines = ["HISTORY:"]
@@ -102,6 +123,16 @@ def _format_history(history: list[dict]) -> str:
 
 
 def _format_prior_goals(prior_goals: list[Goal]) -> str:
+    """Format goal list with completion status.
+    
+    Shows which goals are done and which remain open.
+    
+    Args:
+        prior_goals: Goal list from prior perception iteration
+        
+    Returns:
+        Formatted string with indexed, status-marked goals
+    """
     if not prior_goals:
         return "PRIOR GOALS: (none -- first iteration, decompose the query)\n"
     lines = ["PRIOR GOALS:"]
@@ -113,6 +144,23 @@ def _format_prior_goals(prior_goals: list[Goal]) -> str:
 
 def observe(query: str, hits: list[MemoryItem], history: list[dict],
             prior_goals: list[Goal], run_id: str) -> Observation:
+    """Perception layer: decompose or track goals.
+    
+    First call: Decomposes user query into ordered goals.
+    Later calls: Tracks which goals are satisfied based on history.
+    
+    Handles artifact attachment for the first unfinished goal if needed.
+    
+    Args:
+        query: User query
+        hits: Memory search results (for artifact candidates)
+        history: Recent agent execution history
+        prior_goals: Goals from prior iteration (empty on first call)
+        run_id: Execution run identifier
+        
+    Returns:
+        Observation with updated goal list and artifact decisions
+    """
     prompt = (
         f"USER QUERY: {query}\n\n"
         f"{_format_hits(hits)}\n"
